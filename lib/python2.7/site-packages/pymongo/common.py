@@ -28,8 +28,7 @@ from pymongo.auth import MECHANISMS
 from pymongo.errors import ConfigurationError
 from pymongo.monitoring import _validate_event_listeners
 from pymongo.read_concern import ReadConcern
-from pymongo.read_preferences import (read_pref_mode_from_name,
-                                      _ServerMode)
+from pymongo.read_preferences import _MONGOS_MODES, _ServerMode
 from pymongo.ssl_support import validate_cert_reqs
 from pymongo.write_concern import WriteConcern
 
@@ -302,13 +301,16 @@ def validate_read_preference(dummy, value):
     return value
 
 
-def validate_read_preference_mode(dummy, name):
+def validate_read_preference_mode(dummy, value):
     """Validate read preference mode for a MongoReplicaSetClient.
+
+    .. versionchanged:: 3.5
+       Returns the original ``value`` instead of the validated read preference
+       mode.
     """
-    try:
-        return read_pref_mode_from_name(name)
-    except ValueError:
-        raise ValueError("%s is not a valid read preference" % (name,))
+    if value not in _MONGOS_MODES:
+        raise ValueError("%s is not a valid read preference" % (value,))
+    return value
 
 
 def validate_auth_mechanism(option, value):
@@ -510,7 +512,9 @@ KW_VALIDATORS = {
     'document_class': validate_document_class,
     'read_preference': validate_read_preference,
     'event_listeners': _validate_event_listeners,
-    'tzinfo': validate_tzinfo
+    'tzinfo': validate_tzinfo,
+    'username': validate_string_or_none,
+    'password': validate_string_or_none,
 }
 
 URI_VALIDATORS.update(TIMEOUT_VALIDATORS)

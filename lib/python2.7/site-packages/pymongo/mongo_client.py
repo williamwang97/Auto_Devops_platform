@@ -196,9 +196,6 @@ class MongoClient(common.BaseObject):
           - `waitQueueMultiple`: (integer or None) Multiplied by maxPoolSize
             to give the number of threads allowed to wait for a socket at one
             time. Defaults to ``None`` (no limit).
-          - `socketKeepAlive`: (boolean) Whether to send periodic keep-alive
-            packets on connected sockets. Defaults to ``False`` (do not send
-            keep-alive packets).
           - `heartbeatFrequencyMS`: (optional) The number of milliseconds
             between periodic server checks, or None to accept the default
             frequency of 10 seconds.
@@ -209,6 +206,10 @@ class MongoClient(common.BaseObject):
             profile collections.
           - `event_listeners`: a list or tuple of event listeners. See
             :mod:`~pymongo.monitoring` for details.
+          - `socketKeepAlive`: (boolean) **DEPRECATED** Whether to send
+            periodic keep-alive packets on connected sockets. Defaults to
+            ``True``. Disabling it is not recommended, see
+            https://docs.mongodb.com/manual/faq/diagnostics/#does-tcp-keepalive-time-affect-mongodb-deployments",
 
           | **Write Concern options:**
           | (Only set if passed. No default values.)
@@ -258,6 +259,30 @@ class MongoClient(common.BaseObject):
             Defaults to ``-1``, meaning no maximum. If maxStalenessSeconds
             is set, it must be a positive integer greater than or equal to
             90 seconds.
+
+          | **Authentication:**
+
+          - `username`: A string.
+          - `password`: A string.
+
+            Although username and password must be percent-escaped in a MongoDB
+            URI, they must not be percent-escaped when passed as parameters. In
+            this example, both the space and slash special characters are passed
+            as-is::
+
+              MongoClient(username="user name", password="pass/word")
+
+          - `authSource`: The database to authenticate on. Defaults to the
+            database specified in the URI, if provided, or to "admin".
+          - `authMechanism`: See :data:`~pymongo.auth.MECHANISMS` for options.
+            By default, use SCRAM-SHA-1 with MongoDB 3.0 and later, MONGODB-CR
+            (MongoDB Challenge Response protocol) for older servers.
+          - `authMechanismProperties`: Used to specify authentication mechanism
+            specific options. To specify the service name for GSSAPI
+            authentication pass authMechanismProperties='SERVICE_NAME:<service
+            name>'
+
+          .. seealso:: :doc:`/examples/authentication`
 
           | **SSL configuration:**
 
@@ -311,6 +336,13 @@ class MongoClient(common.BaseObject):
             level is left unspecified, the server default will be used.
 
         .. mongodoc:: connections
+
+        .. versionchanged:: 3.5
+           Add ``username`` and ``password`` options. Document the
+           ``authSource``, ``authMechanism``, and ``authMechanismProperties ``
+           options.
+           Deprecated the `socketKeepAlive` keyword argument and URI option.
+           `socketKeepAlive` now defaults to ``True``.
 
         .. versionchanged:: 3.0
            :class:`~pymongo.mongo_client.MongoClient` is now the one and only
@@ -421,6 +453,16 @@ class MongoClient(common.BaseObject):
         keyword_opts = dict(common.validate(k, v)
                             for k, v in keyword_opts.items())
         opts.update(keyword_opts)
+        # Username and password passed as kwargs override user info in URI.
+        username = opts.get("username", username)
+        password = opts.get("password", password)
+        if 'socketkeepalive' in opts:
+            warnings.warn(
+                "The socketKeepAlive option is deprecated. It now"
+                "defaults to true and disabling it is not recommended, see "
+                "https://docs.mongodb.com/manual/faq/diagnostics/"
+                "#does-tcp-keepalive-time-affect-mongodb-deployments",
+                DeprecationWarning, stacklevel=2)
         self.__options = options = ClientOptions(
             username, password, dbase, opts)
 
@@ -778,6 +820,9 @@ class MongoClient(common.BaseObject):
         If this instance is used again it will be automatically re-opened and
         the threads restarted.
         """
+        # Run _process_periodic_tasks to send pending killCursor requests
+        # before closing the topology.
+        self._process_periodic_tasks()
         self._topology.close()
 
     def set_cursor_manager(self, manager_class):
@@ -963,7 +1008,8 @@ class MongoClient(common.BaseObject):
         options.extend(
             option_repr(key, self.__options._options[key])
             for key in self.__options._options
-            if key not in set(self._constructor_args))
+            if key not in set(self._constructor_args)
+            and key != 'username' and key != 'password')
         return ', '.join(options)
 
     def __repr__(self):
@@ -1024,6 +1070,21 @@ class MongoClient(common.BaseObject):
         else:
             self.__kill_cursors_queue.append((address, [cursor_id]))
 
+    def _close_cursor_now(self, cursor_id, address=None):
+        """Send a kill cursors message with the given id.
+
+        What closing the cursor actually means depends on this client's
+        cursor manager. If there is none, the cursor is closed synchronously
+        on the current thread.
+        """
+        if not isinstance(cursor_id, integer_types):
+            raise TypeError("cursor_id must be an instance of (int, long)")
+
+        if self.__cursor_manager is not None:
+            self.__cursor_manager.close(cursor_id, address)
+        else:
+            self._kill_cursors([cursor_id], address, self._get_topology())
+
     def kill_cursors(self, cursor_ids, address=None):
         """DEPRECATED - Send a kill cursors message soon with the given ids.
 
@@ -1055,6 +1116,62 @@ class MongoClient(common.BaseObject):
         # "Atomic", needs no lock.
         self.__kill_cursors_queue.append((address, cursor_ids))
 
+    def _kill_cursors(self, cursor_ids, address, topology):
+        """Send a kill cursors message with the given ids."""
+        listeners = self._event_listeners
+        publish = listeners.enabled_for_commands
+        if address:
+            # address could be a tuple or _CursorAddress, but
+            # select_server_by_address needs (host, port).
+            server = topology.select_server_by_address(tuple(address))
+        else:
+            # Application called close_cursor() with no address.
+            server = topology.select_server(writable_server_selector)
+
+        try:
+            namespace = address.namespace
+            db, coll = namespace.split('.', 1)
+        except AttributeError:
+            namespace = None
+            db = coll = "OP_KILL_CURSORS"
+
+        spec = SON([('killCursors', coll), ('cursors', cursor_ids)])
+        with server.get_socket(self.__all_credentials) as sock_info:
+            if sock_info.max_wire_version >= 4 and namespace is not None:
+                sock_info.command(db, spec)
+            else:
+                if publish:
+                    start = datetime.datetime.now()
+                request_id, msg = message.kill_cursors(cursor_ids)
+                if publish:
+                    duration = datetime.datetime.now() - start
+                    # Here and below, address could be a tuple or
+                    # _CursorAddress. We always want to publish a
+                    # tuple to match the rest of the monitoring
+                    # API.
+                    listeners.publish_command_start(
+                        spec, db, request_id, tuple(address))
+                    start = datetime.datetime.now()
+
+                try:
+                    sock_info.send_message(msg, 0)
+                except Exception as exc:
+                    if publish:
+                        dur = ((datetime.datetime.now() - start) + duration)
+                        listeners.publish_command_failure(
+                            dur, message._convert_exception(exc),
+                            'killCursors', request_id,
+                            tuple(address))
+                    raise
+
+                if publish:
+                    duration = ((datetime.datetime.now() - start) + duration)
+                    # OP_KILL_CURSORS returns no reply, fake one.
+                    reply = {'cursorsUnknown': cursor_ids, 'ok': 1}
+                    listeners.publish_command_success(
+                        duration, reply, 'killCursors', request_id,
+                        tuple(address))
+
     # This method is run periodically by a background thread.
     def _process_periodic_tasks(self):
         """Process any pending kill cursors requests and
@@ -1072,64 +1189,10 @@ class MongoClient(common.BaseObject):
 
         # Don't re-open topology if it's closed and there's no pending cursors.
         if address_to_cursor_ids:
-            listeners = self._event_listeners
-            publish = listeners.enabled_for_commands
             topology = self._get_topology()
             for address, cursor_ids in address_to_cursor_ids.items():
                 try:
-                    if address:
-                        # address could be a tuple or _CursorAddress, but
-                        # select_server_by_address needs (host, port).
-                        server = topology.select_server_by_address(
-                            tuple(address))
-                    else:
-                        # Application called close_cursor() with no address.
-                        server = topology.select_server(
-                            writable_server_selector)
-
-                    try:
-                        namespace = address.namespace
-                        db, coll = namespace.split('.', 1)
-                    except AttributeError:
-                        namespace = None
-                        db = coll = "OP_KILL_CURSORS"
-
-                    spec = SON([('killCursors', coll),
-                                ('cursors', cursor_ids)])
-                    with server.get_socket(self.__all_credentials) as sock_info:
-                        if (sock_info.max_wire_version >= 4 and
-                                namespace is not None):
-                            sock_info.command(db, spec)
-                        else:
-                            if publish:
-                                start = datetime.datetime.now()
-                            request_id, msg = message.kill_cursors(cursor_ids)
-                            if publish:
-                                duration = datetime.datetime.now() - start
-                                listeners.publish_command_start(
-                                    spec, db, request_id, address)
-                                start = datetime.datetime.now()
-
-                            try:
-                                sock_info.send_message(msg, 0)
-                            except Exception as exc:
-                                if publish:
-                                    dur = ((datetime.datetime.now() - start)
-                                           + duration)
-                                    listeners.publish_command_failure(
-                                        dur, message._convert_exception(exc),
-                                        'killCursors', request_id, address)
-                                raise
-
-                            if publish:
-                                duration = ((datetime.datetime.now() - start)
-                                            + duration)
-                                # OP_KILL_CURSORS returns no reply, fake one.
-                                reply = {'cursorsUnknown': cursor_ids, 'ok': 1}
-                                listeners.publish_command_success(
-                                    duration, reply, 'killCursors', request_id,
-                                    address)
-
+                    self._kill_cursors(cursor_ids, address, topology)
                 except Exception:
                     helpers._handle_exception()
         try:
@@ -1145,8 +1208,9 @@ class MongoClient(common.BaseObject):
     def database_names(self):
         """Get a list of the names of all databases on the connected server."""
         return [db["name"] for db in
-                self._database_default_options('admin').command(
-                    "listDatabases")["databases"]]
+                self._database_default_options("admin").command(
+                    SON([("listDatabases", 1),
+                         ("nameOnly", True)]))["databases"]]
 
     def drop_database(self, name_or_database):
         """Drop a database.
@@ -1189,22 +1253,29 @@ class MongoClient(common.BaseObject):
                 parse_write_concern_error=True)
 
     def get_default_database(self):
-        """Get the database named in the MongoDB connection URI.
+        """DEPRECATED - Get the database named in the MongoDB connection URI.
 
         >>> uri = 'mongodb://host/my_database'
         >>> client = MongoClient(uri)
         >>> db = client.get_default_database()
         >>> assert db.name == 'my_database'
+        >>> db = client.get_database()
+        >>> assert db.name == 'my_database'
 
         Useful in scripts where you want to choose which database to use
         based only on the URI in a configuration file.
+
+        .. versionchanged:: 3.5
+           Deprecated, use :meth:`get_database` instead.
         """
+        warnings.warn("get_default_database is deprecated. Use get_database "
+                      "instead.", DeprecationWarning, stacklevel=2)
         if self.__default_database_name is None:
             raise ConfigurationError('No default database defined')
 
         return self[self.__default_database_name]
 
-    def get_database(self, name, codec_options=None, read_preference=None,
+    def get_database(self, name=None, codec_options=None, read_preference=None,
                      write_concern=None, read_concern=None):
         """Get a :class:`~pymongo.database.Database` with the given name and
         options.
@@ -1225,7 +1296,9 @@ class MongoClient(common.BaseObject):
           Secondary(tag_sets=None)
 
         :Parameters:
-          - `name`: The name of the database - a string.
+          - `name` (optional): The name of the database - a string. If ``None``
+            (the default) the database named in the MongoDB connection URI is
+            returned.
           - `codec_options` (optional): An instance of
             :class:`~bson.codec_options.CodecOptions`. If ``None`` (the
             default) the :attr:`codec_options` of this :class:`MongoClient` is
@@ -1242,7 +1315,16 @@ class MongoClient(common.BaseObject):
             :class:`~pymongo.read_concern.ReadConcern`. If ``None`` (the
             default) the :attr:`read_concern` of this :class:`MongoClient` is
             used.
+
+        .. versionchanged:: 3.5
+           The `name` parameter is now optional, defaulting to the database
+           named in the MongoDB connection URI.
         """
+        if name is None:
+            if self.__default_database_name is None:
+                raise ConfigurationError('No default database defined')
+            name = self.__default_database_name
+
         return database.Database(
             self, name, codec_options, read_preference,
             write_concern, read_concern)

@@ -350,6 +350,8 @@ class Topology(object):
             # Mark all servers Unknown.
             self._description = self._description.reset()
             self._update_servers()
+            self._opened = False
+
         # Publish only after releasing the lock.
         if self._publish_tp:
             self._events.put((self._listeners.publish_topology_closed,
@@ -461,7 +463,6 @@ class Topology(object):
             socket_timeout=options.connect_timeout,
             ssl_context=options.ssl_context,
             ssl_match_hostname=options.ssl_match_hostname,
-            socket_keepalive=True,
             event_listeners=options.event_listeners,
             appname=options.appname)
 

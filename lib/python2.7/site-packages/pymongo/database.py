@@ -142,7 +142,7 @@ class Database(common.BaseObject):
 
     @property
     def system_js(self):
-        """A :class:`SystemJS` helper for this :class:`Database`.
+        """**DEPRECATED**: :class:`SystemJS` helper for this :class:`Database`.
 
         See the documentation for :class:`SystemJS` for more details.
         """
@@ -160,39 +160,61 @@ class Database(common.BaseObject):
 
     @property
     def incoming_manipulators(self):
-        """All incoming SON manipulators installed on this instance.
+        """**DEPRECATED**: All incoming SON manipulators.
+
+        .. versionchanged:: 3.5
+          Deprecated.
 
         .. versionadded:: 2.0
         """
+        warnings.warn("Database.incoming_manipulators() is deprecated",
+                      DeprecationWarning, stacklevel=2)
+
         return [manipulator.__class__.__name__
                 for manipulator in self.__incoming_manipulators]
 
     @property
     def incoming_copying_manipulators(self):
-        """All incoming SON copying manipulators installed on this instance.
+        """**DEPRECATED**: All incoming SON copying manipulators.
+
+        .. versionchanged:: 3.5
+          Deprecated.
 
         .. versionadded:: 2.0
         """
+        warnings.warn("Database.incoming_copying_manipulators() is deprecated",
+                      DeprecationWarning, stacklevel=2)
+
         return [manipulator.__class__.__name__
                 for manipulator in self.__incoming_copying_manipulators]
 
     @property
     def outgoing_manipulators(self):
-        """List all outgoing SON manipulators
-        installed on this instance.
+        """**DEPRECATED**: All outgoing SON manipulators.
+
+        .. versionchanged:: 3.5
+          Deprecated.
 
         .. versionadded:: 2.0
         """
+        warnings.warn("Database.outgoing_manipulators() is deprecated",
+                      DeprecationWarning, stacklevel=2)
+
         return [manipulator.__class__.__name__
                 for manipulator in self.__outgoing_manipulators]
 
     @property
     def outgoing_copying_manipulators(self):
-        """List all outgoing SON copying manipulators
-        installed on this instance.
+        """**DEPRECATED**: All outgoing SON copying manipulators.
+
+        .. versionchanged:: 3.5
+          Deprecated.
 
         .. versionadded:: 2.0
         """
+        warnings.warn("Database.outgoing_copying_manipulators() is deprecated",
+                      DeprecationWarning, stacklevel=2)
+
         return [manipulator.__class__.__name__
                 for manipulator in self.__outgoing_copying_manipulators]
 
@@ -968,7 +990,7 @@ class Database(common.BaseObject):
 
     def authenticate(self, name=None, password=None,
                      source=None, mechanism='DEFAULT', **kwargs):
-        """Authenticate to use this database.
+        """**DEPRECATED**: Authenticate to use this database.
 
         Authentication lasts for the life of the underlying client
         instance, or until :meth:`logout` is called.
@@ -1007,6 +1029,11 @@ class Database(common.BaseObject):
             authentication mechanism specific options. To specify the service
             name for GSSAPI authentication pass
             authMechanismProperties='SERVICE_NAME:<service name>'
+
+        .. versionchanged:: 3.5
+           Deprecated. Authenticating multiple users conflicts with support for
+           logical sessions in MongoDB 3.6. To authenticate as multiple users,
+           create multiple instances of MongoClient.
 
         .. versionadded:: 2.8
            Use SCRAM-SHA-1 with MongoDB 3.0 and later.
@@ -1050,7 +1077,10 @@ class Database(common.BaseObject):
         return True
 
     def logout(self):
-        """Deauthorize use of this database for this client instance."""
+        """**DEPRECATED**: Deauthorize use of this database."""
+        warnings.warn("Database.logout() is deprecated",
+                      DeprecationWarning, stacklevel=2)
+
         # Sockets will be deauthenticated as they are used.
         self.client._purge_credentials(self.name)
 
@@ -1079,18 +1109,7 @@ class Database(common.BaseObject):
         return self[dbref.collection].find_one({"_id": dbref.id}, **kwargs)
 
     def eval(self, code, *args):
-        """Evaluate a JavaScript expression in MongoDB.
-
-        Useful if you need to touch a lot of data lightly; in such a
-        scenario the network transfer of the data could be a
-        bottleneck. The `code` argument must be a JavaScript
-        function. Additional positional arguments will be passed to
-        that function when it is run on the server.
-
-        Raises :class:`TypeError` if `code` is not an instance of
-        :class:`basestring` (:class:`str` in python 3) or `Code`.
-        Raises :class:`~pymongo.errors.OperationFailure` if the eval
-        fails. Returns the result of the evaluation.
+        """**DEPRECATED**: Evaluate a JavaScript expression in MongoDB.
 
         :Parameters:
           - `code`: string representation of JavaScript code to be
@@ -1101,6 +1120,9 @@ class Database(common.BaseObject):
         .. warning:: the eval command is deprecated in MongoDB 3.0 and
           will be removed in a future server version.
         """
+        warnings.warn("Database.eval() is deprecated",
+                      DeprecationWarning, stacklevel=2)
+
         if not isinstance(code, Code):
             code = Code(code)
 
@@ -1117,30 +1139,17 @@ class Database(common.BaseObject):
 
 
 class SystemJS(object):
-    """Helper class for dealing with stored JavaScript.
+    """**DEPRECATED**: Helper class for dealing with stored JavaScript.
     """
 
     def __init__(self, database):
-        """Get a system js helper for the database `database`.
+        """**DEPRECATED**: Get a system js helper for the database `database`.
 
-        An instance of :class:`SystemJS` can be created with an instance
-        of :class:`Database` through :attr:`Database.system_js`,
-        manual instantiation of this class should not be necessary.
-
-        :class:`SystemJS` instances allow for easy manipulation and
-        access to server-side JavaScript:
-
-        .. doctest::
-
-          >>> db.system_js.add1 = "function (x) { return x + 1; }"
-          >>> db.system.js.find({"_id": "add1"}).count()
-          1
-          >>> db.system_js.add1(5)
-          6.0
-          >>> del db.system_js.add1
-          >>> db.system.js.find({"_id": "add1"}).count()
-          0
+        SystemJS will be removed in PyMongo 4.0.
         """
+        warnings.warn("SystemJS is deprecated",
+                      DeprecationWarning, stacklevel=2)
+
         if not database.write_concern.acknowledged:
             database = database.client.get_database(
                 database.name, write_concern=WriteConcern())

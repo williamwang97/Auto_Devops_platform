@@ -102,6 +102,12 @@ class _ServerMode(object):
         return self.__class__.__name__
 
     @property
+    def mongos_mode(self):
+        """The mongos mode of this read preference.
+        """
+        return self.__mongos_mode
+
+    @property
     def document(self):
         """Read preference as a document.
         """
@@ -194,6 +200,8 @@ class Primary(_ServerMode):
       the replica set.
     """
 
+    __slots__ = ()
+
     def __init__(self):
         super(Primary, self).__init__(_PRIMARY)
 
@@ -230,6 +238,8 @@ class PrimaryPreferred(_ServerMode):
         90 seconds.
     """
 
+    __slots__ = ()
+
     def __init__(self, tag_sets=None, max_staleness=-1):
         super(PrimaryPreferred, self).__init__(_PRIMARY_PREFERRED,
                                                tag_sets,
@@ -265,6 +275,8 @@ class Secondary(_ServerMode):
         90 seconds.
     """
 
+    __slots__ = ()
+
     def __init__(self, tag_sets=None, max_staleness=-1):
         super(Secondary, self).__init__(_SECONDARY, tag_sets, max_staleness)
 
@@ -294,6 +306,8 @@ class SecondaryPreferred(_ServerMode):
         Default -1, meaning no maximum. If it is set, it must be at least
         90 seconds.
     """
+
+    __slots__ = ()
 
     def __init__(self, tag_sets=None, max_staleness=-1):
         super(SecondaryPreferred, self).__init__(_SECONDARY_PREFERRED,
@@ -331,6 +345,8 @@ class Nearest(_ServerMode):
         Default -1, meaning no maximum. If it is set, it must be at least
         90 seconds.
     """
+
+    __slots__ = ()
 
     def __init__(self, tag_sets=None, max_staleness=-1):
         super(Nearest, self).__init__(_NEAREST, tag_sets, max_staleness)

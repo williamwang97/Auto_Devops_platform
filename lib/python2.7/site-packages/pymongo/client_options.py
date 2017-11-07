@@ -22,7 +22,8 @@ from pymongo.errors import ConfigurationError
 from pymongo.monitoring import _EventListeners
 from pymongo.pool import PoolOptions
 from pymongo.read_concern import ReadConcern
-from pymongo.read_preferences import make_read_preference
+from pymongo.read_preferences import (make_read_preference,
+                                      read_pref_mode_from_name)
 from pymongo.ssl_support import get_ssl_context
 from pymongo.write_concern import WriteConcern
 
@@ -42,7 +43,8 @@ def _parse_read_preference(options):
     if 'read_preference' in options:
         return options['read_preference']
 
-    mode = options.get('readpreference', 0)
+    name = options.get('readpreference', 'primary')
+    mode = read_pref_mode_from_name(name)
     tags = options.get('readpreferencetags')
     max_staleness = options.get('maxstalenessseconds', -1)
     return make_read_preference(mode, tags, max_staleness)
@@ -104,7 +106,7 @@ def _parse_pool_options(options):
     if max_pool_size is not None and min_pool_size > max_pool_size:
         raise ValueError("minPoolSize must be smaller or equal to maxPoolSize")
     connect_timeout = options.get('connecttimeoutms', common.CONNECT_TIMEOUT)
-    socket_keepalive = options.get('socketkeepalive', False)
+    socket_keepalive = options.get('socketkeepalive', True)
     socket_timeout = options.get('sockettimeoutms')
     wait_queue_timeout = options.get('waitqueuetimeoutms')
     wait_queue_multiple = options.get('waitqueuemultiple')

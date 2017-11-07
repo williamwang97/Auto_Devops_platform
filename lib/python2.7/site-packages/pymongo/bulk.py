@@ -599,14 +599,14 @@ class BulkWriteOperation(object):
 
 
 class BulkOperationBuilder(object):
-    """An interface for executing a batch of write operations.
+    """**DEPRECATED**: An interface for executing a batch of write operations.
     """
 
     __slots__ = '__bulk'
 
     def __init__(self, collection, ordered=True,
                  bypass_document_validation=False):
-        """Initialize a new BulkOperationBuilder instance.
+        """**DEPRECATED**: Initialize a new BulkOperationBuilder instance.
 
         :Parameters:
           - `collection`: A :class:`~pymongo.collection.Collection` instance.
@@ -623,6 +623,10 @@ class BulkOperationBuilder(object):
         .. note:: `bypass_document_validation` requires server version
           **>= 3.2**
 
+        .. versionchanged:: 3.5
+           Deprecated. Use :meth:`~pymongo.collection.Collection.bulk_write`
+           instead.
+
         .. versionchanged:: 3.2
           Added bypass_document_validation support
         """
@@ -635,8 +639,8 @@ class BulkOperationBuilder(object):
           - `selector` (dict): the selection criteria for update
             and remove operations.
           - `collation` (optional): An instance of
-            :class:`~pymongo.collation.Collation`. This option is only supported
-            on MongoDB 3.4 and above.
+            :class:`~pymongo.collation.Collation`. This option is only
+            supported on MongoDB 3.4 and above.
 
         :Returns:
           - A :class:`BulkWriteOperation` instance, used to add
