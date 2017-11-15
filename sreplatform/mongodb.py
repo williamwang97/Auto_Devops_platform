@@ -3,6 +3,7 @@ import pymongo
 import aliyunslb_api
 import mns_api
 from pymongo import MongoClient
+from pymongo import 
 
 
 class mongodb_opertion(aliyunslb_api.aliyun_slb_api,mns_api.aliyun_mns_api):

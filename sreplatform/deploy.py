@@ -17,8 +17,8 @@ fomat_time = str(now_time.date()) + '_' + \
 #env.key_filename = "/home/william/my_server-Identity"
 env.project_dir = '/path/to/project'
 env.roledefs = {
-	'userbase':['45.32.23.144','45.32.60.134'],
-	'fundbase':['45.32.23.144','45.32.60.134']
+	'userbase':['ip1','ip2'],
+	'fundbase':['ip3','ip4']
 }
 @runs_once()
 def local_op():
